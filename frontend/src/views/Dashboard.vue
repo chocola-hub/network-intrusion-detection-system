@@ -45,7 +45,7 @@
 
     <div class="refresh-bar">
       <button @click="refreshAll" :disabled="loading">{{ loading ? '刷新中...' : '刷新数据' }}</button>
-      <span class="note">仪表盘每 5 秒自动刷新</span>
+      <span class="note">WebSocket {{ wsConnected ? '实时连接' : '未连接 (轮询降级)' }}</span>
     </div>
   </div>
 </template>
@@ -53,6 +53,7 @@
 <script>
 import * as echarts from 'echarts'
 import axios from 'axios'
+import { io } from 'socket.io-client'
 
 const TCOLORS = { '端口扫描':'#ff9800','暴力登录':'#f44336','异常访问频率':'#e91e63','可疑路径访问':'#9c27b0','异常状态码':'#2196f3' }
 const SCOLORS = { '高危':'#f44336','中危':'#ff9800','低危':'#4caf50' }
@@ -64,6 +65,9 @@ export default {
       ids: { events: 0, summary: {}, total_alerts: 0, avg_score: 0, type_counts: {}, severity_counts: {}, top_sources: [] },
       ips: { status: { enabled: false, rule_count: 0, uptime_seconds: 0 }, stats: { total_checked: 0, total_dropped: 0, total_accepted: 0, drop_rate: 0, protocols: {} }, availability: 'checking' },
       loading: false,
+      wsConnected: false,
+      lastWsUpdate: 0,
+      socket: null,
     }
   },
   methods: {
@@ -122,10 +126,35 @@ export default {
   mounted() {
     this.initCharts()
     this.refreshAll()
-    this._timer = setInterval(() => this.refreshAll(), 5000)
-    window.addEventListener('resize', () => Object.values(this).filter(v => v?.resize).forEach(c => c.resize()))
+
+    this.socket = io()
+    this.socket.on('connect', () => {
+      this.wsConnected = true
+    })
+    this.socket.on('ids_update', (data) => {
+      this.ids = data || this.ids
+      this.lastWsUpdate = Date.now()
+      this.$nextTick(() => this.updateCharts())
+    })
+    this.socket.on('disconnect', () => {
+      this.wsConnected = false
+    })
+
+    this._timer = setInterval(() => {
+      if (!this.wsConnected || Date.now() - this.lastWsUpdate > 10000) {
+        this.refreshAll()
+      }
+    }, 5000)
+
+    window.addEventListener('resize', () => {
+      this.pieChart?.resize(); this.sevChart?.resize()
+      this.barChart?.resize(); this.protoChart?.resize()
+    })
   },
-  beforeUnmount() { clearInterval(this._timer) },
+  beforeUnmount() {
+    clearInterval(this._timer)
+    if (this.socket) this.socket.disconnect()
+  },
 }
 </script>
 
