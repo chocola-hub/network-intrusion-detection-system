@@ -11,7 +11,7 @@ sys.path.insert(0, str(LAB_DIR))
 sys.path.insert(0, str(IDS_DIR))
 sys.path.insert(0, str(LAB_DIR / "scripts"))
 
-from app import app, reset_state  # noqa: E402
+from app import ACCESS_LOG, app, reset_state  # noqa: E402
 from demo_attacks import require_local_target  # noqa: E402
 from src.parser.log_parser import parse_csv_log  # noqa: E402
 
@@ -181,6 +181,21 @@ def test_exported_log_file_can_be_parsed_by_ids_parser():
     events = parse_csv_log(LAB_DIR / "data" / "exported_logs.csv")
     assert len(events) >= 4
     assert any(event.path == "/shell?cmd=whoami" for event in events)
+
+
+def test_runtime_access_log_records_real_attack_request():
+    payload = "信息安全导论' or 1=1--"
+    with app.test_client() as client:
+        token = login(client, "2024001", "123456")
+        response = client.get("/api/grades", query_string={"course": payload}, headers=auth(token))
+
+    assert response.status_code == 200
+    rows = list(csv.DictReader(ACCESS_LOG.read_text(encoding="utf-8").splitlines()))
+    assert any(row["path"] == f"/api/grades?course={payload}" for row in rows)
+    attack_row = next(row for row in rows if row["path"] == f"/api/grades?course={payload}")
+    assert attack_row["method"] == "GET"
+    assert attack_row["status_code"] == "200"
+    assert attack_row["username"] == "2024001"
 
 
 def test_invalid_score_rejects_float_like_value():

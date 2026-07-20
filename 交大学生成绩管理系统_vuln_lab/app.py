@@ -5,15 +5,18 @@ import copy
 import io
 import json
 import secrets
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote_plus
 
-from flask import Flask, Response, jsonify, render_template, request
+from flask import Flask, Response, g, jsonify, render_template, request
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 AUDIT_LOG = DATA_DIR / "audit_log.jsonl"
+ACCESS_LOG = DATA_DIR / "access_log.csv"
 EXPORT_LOG = DATA_DIR / "exported_logs.csv"
 CSV_FIELDS = [
     "timestamp",
@@ -52,6 +55,69 @@ def write_jsonl(record: dict[str, Any]) -> None:
         file.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
+def ensure_access_log() -> None:
+    if ACCESS_LOG.exists() and ACCESS_LOG.stat().st_size > 0:
+        return
+    with ACCESS_LOG.open("w", encoding="utf-8", newline="") as file:
+        csv.DictWriter(file, fieldnames=CSV_FIELDS).writeheader()
+
+
+def request_path_for_log() -> str:
+    raw_path = request.full_path.rstrip("?")
+    return unquote_plus(raw_path)
+
+
+def write_access_log(status_code: int, bytes_sent: int | None = None) -> None:
+    if request.path.startswith("/static/"):
+        return
+    ensure_access_log()
+    username, _ = current_user()
+    started_at = getattr(g, "request_started_at", time.perf_counter())
+    row = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "source_ip": request.remote_addr or "127.0.0.1",
+        "target_ip": "10.0.0.42",
+        "port": request.host.split(":")[-1] if ":" in request.host else 8001,
+        "path": request_path_for_log(),
+        "status_code": status_code,
+        "username": username or "",
+        "login_success": "",
+        "method": request.method,
+        "protocol": "tcp",
+        "host": request.host.split(":")[0] or "grade-lab.local",
+        "user_agent": request.headers.get("User-Agent", ""),
+        "bytes_sent": bytes_sent or response_size(),
+        "duration_ms": int((time.perf_counter() - started_at) * 1000),
+        "tls_fingerprint": "ja3-browser",
+    }
+    if request.path == "/api/login":
+        row["username"] = login_username_for_log()
+        row["login_success"] = "true" if status_code < 400 else "false"
+    with ACCESS_LOG.open("a", encoding="utf-8", newline="") as file:
+        csv.DictWriter(file, fieldnames=CSV_FIELDS).writerow(row)
+
+
+def login_username_for_log() -> str:
+    data = request.get_json(silent=True) or {}
+    return str(data.get("username", "")).strip()
+
+
+def response_size() -> int:
+    length = request.content_length or 0
+    return max(600, int(length) + 600)
+
+
+@app.before_request
+def mark_request_started() -> None:
+    g.request_started_at = time.perf_counter()
+
+
+@app.after_request
+def log_request(response):
+    write_access_log(response.status_code, response.calculate_content_length())
+    return response
+
+
 def audit(action: str, *, username: str = "anonymous", target: str = "", result: str = "ok", detail: str = "") -> None:
     write_jsonl({
         "timestamp": datetime.now().isoformat(timespec="seconds"),
@@ -75,6 +141,8 @@ def reset_state(clear_audit: bool = True) -> None:
     SCENARIO_EVENTS = copy.deepcopy(scenario.get("log_events", [])) if scenario else []
     if clear_audit:
         AUDIT_LOG.write_text("", encoding="utf-8")
+        ACCESS_LOG.write_text("", encoding="utf-8")
+    ensure_access_log()
     write_export_log(build_export_events())
 
 
@@ -213,8 +281,14 @@ def write_export_log(events: list[dict[str, Any]]) -> None:
             writer.writerow({field: event.get(field, "") for field in CSV_FIELDS})
 
 
+def access_log_events() -> list[dict[str, Any]]:
+    ensure_access_log()
+    with ACCESS_LOG.open("r", encoding="utf-8", newline="") as file:
+        return list(csv.DictReader(file))
+
+
 def build_export_events() -> list[dict[str, Any]]:
-    return [*audit_to_csv_events(), *SCENARIO_EVENTS]
+    return [*access_log_events(), *audit_to_csv_events(), *SCENARIO_EVENTS]
 
 
 @app.get("/")
@@ -385,4 +459,4 @@ reset_state(clear_audit=False)
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8001, debug=True)
+    app.run(host="127.0.0.1", port=8001, debug=True, use_reloader=False)

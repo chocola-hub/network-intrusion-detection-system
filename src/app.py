@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import csv
+import threading
+import time
 from datetime import datetime, MINYEAR
 from io import StringIO
 from pathlib import Path
@@ -24,6 +26,17 @@ except ModuleNotFoundError:
             def decorator(func):
                 return func
             return decorator
+
+        def emit(self, *_args, **_kwargs):
+            return None
+
+        def sleep(self, seconds):
+            time.sleep(seconds)
+
+        def start_background_task(self, target, *args, **kwargs):
+            thread = threading.Thread(target=target, args=args, kwargs=kwargs, daemon=True)
+            thread.start()
+            return thread
 
         def run(self, app, **kwargs):
             app.run(**kwargs)
@@ -53,6 +66,7 @@ from src.llm import (
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
+LAB_ACCESS_LOG = BASE_DIR / "交大学生成绩管理系统_vuln_lab" / "data" / "access_log.csv"
 FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
 
 app = Flask(__name__, static_folder=str(FRONTEND_DIST), static_url_path="/")
@@ -84,6 +98,9 @@ _last_analysis = to_jsonable(AnalysisResult(
     source="",
     recommendations=[],
 ))
+_lab_log_signature: tuple[int, int] | None = None
+_lab_watcher_started = False
+_lab_watcher_lock = threading.Lock()
 
 @app.get("/")
 def index():
@@ -97,7 +114,7 @@ def index():
 def analyze_sample():
     global _last_analysis
     events = parse_csv_log(DATA_DIR / "sample_logs_extended.csv")
-    _last_analysis = analyze_events(events, source="示例数据")
+    update_analysis(analyze_events(events, source="示例数据"))
     return jsonify(_last_analysis)
 
 
@@ -114,9 +131,25 @@ def analyze_upload():
     except (KeyError, TypeError, ValueError, UnicodeDecodeError) as exc:
         return jsonify({"error": f"CSV 日志格式错误：{exc}"}), 400
 
-    _last_analysis = analyze_events(events, source=uploaded.filename)
+    update_analysis(analyze_events(events, source=uploaded.filename))
     return jsonify(_last_analysis)
 
+
+@app.get("/api/analyze/lab-live")
+def analyze_lab_live():
+    global _last_analysis
+    if not LAB_ACCESS_LOG.exists() or LAB_ACCESS_LOG.stat().st_size == 0:
+        return jsonify({"error": "还没有靶场网站访问日志，请先启动靶场并执行登录或攻击请求"}), 404
+
+    try:
+        events = parse_csv_log(LAB_ACCESS_LOG)
+    except (KeyError, TypeError, ValueError, UnicodeDecodeError) as exc:
+        return jsonify({"error": f"靶场访问日志格式错误：{exc}"}), 400
+    if not events:
+        return jsonify({"error": "靶场访问日志为空，请先访问靶场网站或运行攻击脚本"}), 404
+
+    update_analysis(analyze_events(events, source="靶场实时访问日志"), remember_lab_log=True)
+    return jsonify(_last_analysis)
 
 
 @app.get("/api/alerts")
@@ -248,6 +281,50 @@ def filter_alerts(alerts: list[dict[str, object]], alert_type: str = "", severit
     if source_ip:
         filtered = [alert for alert in filtered if alert.get("source_ip") == source_ip]
     return filtered
+
+
+def update_analysis(result: dict[str, object], remember_lab_log: bool = False) -> None:
+    global _last_analysis, _lab_log_signature
+    _last_analysis = result
+    if remember_lab_log:
+        _lab_log_signature = lab_log_signature()
+    socketio.emit("analysis_result", _last_analysis)
+
+
+def lab_log_signature() -> tuple[int, int] | None:
+    if not LAB_ACCESS_LOG.exists() or LAB_ACCESS_LOG.stat().st_size == 0:
+        return None
+    stat = LAB_ACCESS_LOG.stat()
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+def analyze_lab_log_if_changed() -> None:
+    global _lab_log_signature
+    signature = lab_log_signature()
+    if signature is None or signature == _lab_log_signature:
+        return
+    try:
+        events = parse_csv_log(LAB_ACCESS_LOG)
+    except (KeyError, TypeError, ValueError, UnicodeDecodeError):
+        return
+    if not events:
+        return
+    update_analysis(analyze_events(events, source="靶场实时访问日志"), remember_lab_log=True)
+
+
+def lab_log_watcher() -> None:
+    while True:
+        analyze_lab_log_if_changed()
+        socketio.sleep(2)
+
+
+def start_lab_log_watcher() -> None:
+    global _lab_watcher_started
+    with _lab_watcher_lock:
+        if _lab_watcher_started:
+            return
+        _lab_watcher_started = True
+        socketio.start_background_task(lab_log_watcher)
 
 
 def analyze_events(events, source: str) -> dict[str, object]:
@@ -549,9 +626,10 @@ def api_llm_models():
     return jsonify({"code": 0, "data": models})
 
 
-@socketio.on('connect')
+@socketio.on("connect")
 def on_connect():
-    pass
+    socketio.emit("analysis_result", _last_analysis, to=request.sid)
+    start_lab_log_watcher()
 
 
 if __name__ == "__main__":
