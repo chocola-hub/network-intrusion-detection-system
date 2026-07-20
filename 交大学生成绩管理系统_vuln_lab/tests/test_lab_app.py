@@ -97,28 +97,13 @@ def test_student_can_query_other_student_by_direct_parameter():
     assert {item["student_id"] for item in items} == {"2024002"}
 
 
-def test_sqli_payload_returns_all_grades_and_audits_it():
+def test_student_id_sqli_shape_stays_idor_parameter_only():
     with app.test_client() as client:
         token = login(client, "2024001", "123456")
         response = client.get("/api/grades?student_id=2024001%27%20or%201=1--", headers=auth(token))
-        assert response.status_code == 200
-        items = response.get_json()["data"]["items"]
-        student_ids = {item["student_id"] for item in items}
-        assert {"2024001", "2024002", "2024003"}.issubset(student_ids)
 
-        audit = client.get("/api/lab/audit")
-        records = audit.get_json()["data"]["items"]
-        assert any(
-            item["action"] == "vulnerable_grade_query"
-            and item["target"] == "2024001' or 1=1--"
-            and item["scenario"] == "sqli_probe"
-            for item in records
-        )
-
-        export = client.get("/api/lab/export-log")
-        rows = list(csv.DictReader(io.StringIO(export.get_data(as_text=True))))
-        assert any(row["path"] == "/lab/vulnerable_grade_query" for row in rows)
-        assert any("or%201=1" in row["path"] for row in rows)
+    assert response.status_code == 200
+    assert response.get_json()["data"]["items"] == []
 
 
 def test_student_course_search_supports_normal_and_sqli_lab_queries():
@@ -141,9 +126,16 @@ def test_student_course_search_supports_normal_and_sqli_lab_queries():
 
         audit = client.get("/api/lab/audit").get_json()["data"]["items"]
         assert any(
-            item["action"] == "vulnerable_course_query" and item["target"] == payload
+            item["action"] == "vulnerable_course_query"
+            and item["target"] == payload
+            and item["scenario"] == "sqli_probe"
             for item in audit
         )
+
+        export = client.get("/api/lab/export-log")
+        rows = list(csv.DictReader(io.StringIO(export.get_data(as_text=True))))
+        assert any(row["path"] == "/lab/vulnerable_course_query" for row in rows)
+        assert any("union%20select" in row["path"] for row in rows)
 
 
 def test_reset_keeps_vulnerable_site_seeded_without_showing_lab_controls():
@@ -151,7 +143,11 @@ def test_reset_keeps_vulnerable_site_seeded_without_showing_lab_controls():
         reset = client.post("/api/lab/reset")
         assert reset.status_code == 200
         token = login(client, "2024001", "123456")
-        vulnerable = client.get("/api/grades?student_id=2024001%27%20or%201=1--", headers=auth(token))
+        vulnerable = client.get(
+            "/api/grades",
+            query_string={"course": "信息安全导论' or 1=1--"},
+            headers=auth(token),
+        )
         page = client.get("/")
 
     assert {"2024001", "2024002", "2024003"}.issubset(

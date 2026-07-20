@@ -146,14 +146,7 @@ def looks_like_sqli_probe(value: str) -> bool:
     return any(marker in normalized for marker in markers)
 
 
-def vulnerable_grade_query(student_id: str) -> list[dict[str, Any]] | None:
-    if lab_mode_enabled("sqli_probe") and looks_like_sqli_probe(student_id):
-        return GRADE_RECORDS
-    return None
-
-
 def vulnerable_course_query(course: str) -> list[dict[str, Any]] | None:
-    """Keep the SQLi demonstration on the student course-search parameter."""
     if lab_mode_enabled("sqli_probe") and looks_like_sqli_probe(course):
         return GRADE_RECORDS
     return None
@@ -272,16 +265,6 @@ def list_grades():
 
     student_id = request.args.get("student_id", "").strip()
     course = request.args.get("course", "").strip()
-    vulnerable_records = vulnerable_grade_query(student_id)
-    if vulnerable_records is not None:
-        audit(
-            "vulnerable_grade_query",
-            username=username or "anonymous",
-            target=student_id,
-            detail="lab_sqli_bypass_returned_all_grades",
-        )
-        return jsonify({"code": 0, "data": {"items": vulnerable_records, "total": len(vulnerable_records)}})
-
     vulnerable_records = vulnerable_course_query(course)
     if vulnerable_records is not None:
         audit(
