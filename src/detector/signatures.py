@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+import urllib.parse
 from collections import defaultdict
 from pathlib import Path
 
@@ -25,14 +27,22 @@ def detect_signature_attacks(events: list[LogEvent]) -> list[Alert]:
         for signature in signatures:
             matched_fields = []
             matched_pattern = None
+
             for field in signature.get("fields", []):
-                value = str(getattr(event, field, "") or "")
-                lowered = value.lower()
+                # 获取原始字段值，先做 URL 解码再匹配正则
+                raw_value = str(getattr(event, field, "") or "")
+                if not raw_value:
+                    continue
+                value = urllib.parse.unquote(raw_value)
+
                 for pattern in signature.get("patterns", []):
-                    if pattern.lower() in lowered:
+                    if not pattern:
+                        continue
+                    if re.search(pattern, value, flags=re.IGNORECASE):
                         matched_fields.append(field)
                         matched_pattern = pattern
                         break
+
             if not matched_fields:
                 continue
 
@@ -73,7 +83,7 @@ def detect_signature_attacks(events: list[LogEvent]) -> list[Alert]:
             level=level,
             score=score,
             confidence=float(signature.get("confidence", 0.8)),
-            evidence=f"命中特征 {entry['matched_pattern']}，共 {count} 次",
+            evidence=f"命中正则特征 [{entry.get('matched_pattern', '未知')}]，共 {count} 次",
             rule_id=str(signature["id"]),
             count=count,
             first_seen=entry["first_seen"],

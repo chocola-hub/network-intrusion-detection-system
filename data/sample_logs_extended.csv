@@ -52,3 +52,6 @@ timestamp,source_ip,target_ip,port,path,status_code,username,login_success,metho
 2026-07-08T10:06:20,10.1.0.25,10.1.0.12,445,/admin,403,,,GET,tcp,ops.lab,internal-scanner,314,37,
 2026-07-08T10:06:30,10.1.0.25,10.1.0.13,5985,/admin,403,,,GET,tcp,ops.lab,internal-scanner,316,38,
 2026-07-08T10:07:00,10.0.0.51,10.0.0.60,443,/reports,200,,,GET,tcp,data.lab,Mozilla/5.0,950000,9500,ja3-browser
+2026-07-08T10:08:00,198.51.100.33,10.0.0.42,443,/exec?cmd=|cat%20/etc/passwd,200,,,GET,tcp,app.lab,curl/8.0,320,65,ja3-browser
+2026-07-08T10:08:10,198.51.100.22,10.0.0.42,443,/view?page=php://filter/convert.base64-encode/resource=index.php,200,,,GET,tcp,app.lab,curl/8.0,450,70,ja3-browser
+2026-07-08T10:08:20,198.51.100.11,10.0.0.42,443,/shell?cmd=eval($_POST[cmd]),200,,,POST,tcp,app.lab,webshell-client,800,210,ja3-browser

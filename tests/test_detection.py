@@ -1,6 +1,9 @@
+import csv
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
+import src.app as app_module
 from src.app import app
 from src.detector.rules import detect_attacks
 from src.parser.log_parser import parse_csv_log
@@ -45,6 +48,66 @@ def test_extended_sample_api_returns_rich_analysis_result():
     assert data["summary"]["高危"] == data["summary"]["by_level"]["高危"]
 
 
+def test_alert_export_returns_filtered_csv():
+    with app.test_client() as client:
+        client.get("/api/sample")
+        response = client.get("/api/alerts/export?severity=高危")
+
+    assert response.status_code == 200
+    assert response.content_type.startswith("text/csv")
+    assert "attachment;" in response.headers["Content-Disposition"]
+
+    decoded = response.data.decode("utf-8-sig")
+    rows = list(csv.DictReader(decoded.splitlines()))
+    assert rows
+    assert all(row["level"] == "高危" for row in rows)
+    assert {"alert_type", "source_ip", "evidence", "rule_id"} <= set(rows[0])
+
+
+def test_live_lab_log_endpoint_analyzes_runtime_website_log():
+    lab_log = Path(__file__).resolve().parents[1] / "交大学生成绩管理系统_vuln_lab" / "data" / "access_log.csv"
+    lab_log.write_text(
+        "timestamp,source_ip,target_ip,port,path,status_code,username,login_success,method,protocol,host,user_agent,bytes_sent,duration_ms,tls_fingerprint\n"
+        "2026-07-20T10:00:00,127.0.0.1,10.0.0.42,8001,/api/login,200,2024001,true,POST,tcp,127.0.0.1,grade-lab-demo/1.0,680,30,ja3-browser\n"
+        "2026-07-20T10:00:02,127.0.0.1,10.0.0.42,8001,/api/grades?course=信息安全导论' or 1=1--,200,2024001,,GET,tcp,127.0.0.1,grade-lab-demo/1.0,4500,40,ja3-browser\n",
+        encoding="utf-8",
+    )
+
+    with app.test_client() as client:
+        response = client.get("/api/analyze/lab-live")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["source"] == "靶场实时访问日志"
+    assert data["events"] == 2
+    assert any(alert["alert_type"] == "SQL注入尝试" for alert in data["alerts"])
+
+
+def test_alert_export_cold_start_uses_sample_data():
+    previous_analysis = app_module._last_analysis
+    app_module._last_analysis = {
+        "events": 0,
+        "alerts": [],
+        "incidents": [],
+        "summary": {},
+        "baseline": {},
+        "metadata": {},
+        "source": "",
+        "recommendations": [],
+    }
+
+    try:
+        with app.test_client() as client:
+            response = client.get("/api/alerts/export")
+    finally:
+        app_module._last_analysis = previous_analysis
+
+    assert response.status_code == 200
+    rows = list(csv.DictReader(response.data.decode("utf-8-sig").splitlines()))
+    assert rows
+    assert rows[0]["alert_type"]
+
+
 def test_old_csv_upload_still_works():
     content = SAMPLE_LOG.read_text(encoding="utf-8")
     response = upload_csv(content)
@@ -54,6 +117,33 @@ def test_old_csv_upload_still_works():
     assert data["events"] > 0
     assert data["alerts"]
     assert data["summary"]["by_level"]["中危"] >= 0
+
+
+def test_sample_analysis_emits_realtime_result(monkeypatch):
+    emitted = []
+    monkeypatch.setattr(app_module.socketio, "emit", lambda event, data, **kwargs: emitted.append((event, data, kwargs)))
+
+    with app.test_client() as client:
+        response = client.get("/api/sample")
+
+    assert response.status_code == 200
+    assert emitted
+    event, data, kwargs = emitted[-1]
+    assert event == "analysis_result"
+    assert data["source"] == "示例数据"
+    assert data["events"] > 0
+    assert kwargs == {}
+
+
+def test_socket_connect_emits_current_analysis(monkeypatch):
+    emitted = []
+    monkeypatch.setattr(app_module.socketio, "emit", lambda event, data, **kwargs: emitted.append((event, data, kwargs)))
+    monkeypatch.setattr(app_module, "start_lab_log_watcher", lambda: None)
+    monkeypatch.setattr(app_module, "request", SimpleNamespace(sid="client-1"))
+
+    app_module.on_connect()
+
+    assert emitted == [("analysis_result", app_module._last_analysis, {"to": "client-1"})]
 
 
 def test_extended_parser_supports_optional_fields():

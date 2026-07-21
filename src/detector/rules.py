@@ -10,7 +10,10 @@ from src.scoring.risk import score_alert
 
 SUSPICIOUS_PATH_KEYWORDS = (
     "/admin",
-    "/login",
+    # 修复：移除 "/login" —— 登录页是绝大多数网站的正常入口，
+    # 只要路径包含该子串就报警会对合法访问和已由 detect_brute_force
+    # 覆盖的暴力破解场景产生大量重复/误报告警（同一次登录失败会被
+    # 记两条告警：暴力登录 + 可疑路径访问）
     ".env",
     "/phpmyadmin",
     "/wp-admin",

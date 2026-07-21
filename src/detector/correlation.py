@@ -16,6 +16,9 @@ STAGE_MAP = {
     "目录遍历尝试": "initial_access",
     "恶意命令访问": "execution_or_control",
     "疑似控制信道": "execution_or_control",
+    "命令注入尝试": "execution_or_control",
+    "文件包含尝试": "initial_access",
+    "Webshell执行": "execution_or_control",
     "暴力登录": "credential_attack",
     "登录失败异常": "credential_attack",
     "疑似密码喷洒": "credential_attack",
@@ -71,7 +74,7 @@ def _recommend_actions(alerts: list[Alert]) -> tuple[str, ...]:
         actions.append("限制来源IP访问频率")
     if {"暴力登录", "登录失败异常", "疑似密码喷洒"} & alert_types:
         actions.append("临时锁定目标账号或开启验证码")
-    if {"SQL注入尝试", "XSS尝试", "目录遍历尝试", "恶意命令访问"} & alert_types:
+    if {"SQL注入尝试", "XSS尝试", "目录遍历尝试", "恶意命令访问", "命令注入尝试", "文件包含尝试", "Webshell执行"} & alert_types:
         actions.append("阻断高风险请求并记录审计")
     if {"疑似控制信道", "TLS指纹异常", "疑似横向移动"} & alert_types:
         actions.append("加入隔离或封禁观察名单")

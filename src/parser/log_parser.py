@@ -49,21 +49,28 @@ def parse_csv_log(file_path: str | Path) -> list[LogEvent]:
 
 
 def parse_csv_rows(rows: Iterable[dict[str, str]]) -> Iterable[LogEvent]:
-    for row in rows:
-        yield LogEvent(
-            timestamp=datetime.fromisoformat(row["timestamp"]),
-            source_ip=row["source_ip"].strip(),
-            target_ip=row["target_ip"].strip(),
-            port=int(row["port"]),
-            path=row.get("path", "").strip(),
-            status_code=int(row.get("status_code") or 0),
-            username=row.get("username", "").strip(),
-            login_success=parse_bool(row.get("login_success", "")),
-            method=row.get("method", "").strip(),
-            protocol=row.get("protocol", "").strip(),
-            host=row.get("host", "").strip(),
-            user_agent=row.get("user_agent", "").strip(),
-            bytes_sent=_parse_optional_int(row.get("bytes_sent", "")),
-            duration_ms=_parse_optional_int(row.get("duration_ms", "")),
-            tls_fingerprint=row.get("tls_fingerprint", "").strip(),
-        )
+    for row_index, row in enumerate(rows, start=1):
+        try:
+            yield LogEvent(
+                timestamp=datetime.fromisoformat(row["timestamp"]),
+                source_ip=row["source_ip"].strip(),
+                target_ip=row["target_ip"].strip(),
+                port=int(row["port"]),
+                path=row.get("path", "").strip(),
+                status_code=int(row.get("status_code") or 0),
+                username=row.get("username", "").strip(),
+                login_success=parse_bool(row.get("login_success", "")),
+                method=row.get("method", "").strip(),
+                protocol=row.get("protocol", "").strip(),
+                host=row.get("host", "").strip(),
+                user_agent=row.get("user_agent", "").strip(),
+                bytes_sent=_parse_optional_int(row.get("bytes_sent", "")),
+                duration_ms=_parse_optional_int(row.get("duration_ms", "")),
+                tls_fingerprint=row.get("tls_fingerprint", "").strip(),
+            )
+        except KeyError as e:
+            # 捕获缺少必要字段的异常
+            raise ValueError(f"第 {row_index} 行缺少必要字段: {str(e)}") from e
+        except ValueError as e:
+            # 捕获类型转换失败（如 port 不是整数，timestamp 格式不对）的异常
+            raise ValueError(f"第 {row_index} 行数据格式错误: {str(e)}") from e

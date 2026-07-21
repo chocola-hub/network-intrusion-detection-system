@@ -4,7 +4,22 @@
     "alert_type": "SQL注入尝试",
     "category": "特征匹配",
     "fields": ["path"],
-    "patterns": ["union select", "or 1=1", "information_schema", "sleep(", "select%20", "union%20select"],
+    "patterns": [
+      "(?i)\\bunion\\s+(all\\s+)?select\\b",
+      "(?i)(?:'|%27)\\s*(?:union\\s+(?:all\\s+)?)?select\\b",
+      "(?i)\\bselect\\s+\\*\\s+from\\b",
+      "(?i)\\bor\\s+['\"]?\\d+['\"]?\\s*=\\s*['\"]?\\d+",
+      "(?i)\\band\\s+['\"]?\\d+['\"]?\\s*=\\s*['\"]?\\d+",
+      "(?i)['\"]\\s*or\\s*['\"]?\\d+\\s*=\\s*['\"]?\\d+\\s*--",
+      "(?i)(?:\\s|[&?;])\\d+\\s*=\\s*\\d+(?:\\s|&|$|--)",
+      "(?i)\\bexec\\s+(master\\.\\.)?xp_cmdshell\\b",
+      "(?i)\\bsleep\\s*\\(\\s*\\d+\\s*\\)",
+      "(?i)\\bbenchmark\\s*\\(",
+      "(?i)\\binformation_schema\\b",
+      "(?i)\\bgroup\\s+by\\s+\\d+\\s+having\\b",
+      "(?i)\\bwaitfor\\s+delay\\s+['\"]\\d+:\\d+:\\d+['\"]",
+      "(?i)--\\s"
+    ],
     "base_score": 60,
     "confidence": 0.9,
     "target_field": "path"
@@ -14,7 +29,17 @@
     "alert_type": "XSS尝试",
     "category": "特征匹配",
     "fields": ["path"],
-    "patterns": ["<script", "%3cscript", "javascript:", "onerror="],
+    "patterns": [
+      "(?i)<\\s*script[^>]*>",
+      "(?i)%3c\\s*script",
+      "(?i)\\bonerror\\s*=",
+      "(?i)\\bonload\\s*=",
+      "(?i)javascript\\s*:",
+      "(?i)\\b(alert|prompt|confirm)\\s*\\(",
+      "(?i)\\bdocument\\.cookie\\b",
+      "(?i)<\\s*(img|svg)[^>]+(onerror|onload)\\s*=",
+      "(?i)data:text/html(?:;base64)?,\\s*<"
+    ],
     "base_score": 55,
     "confidence": 0.88,
     "target_field": "path"
@@ -24,7 +49,14 @@
     "alert_type": "目录遍历尝试",
     "category": "特征匹配",
     "fields": ["path"],
-    "patterns": ["../", "..%2f", "/etc/passwd", ".git/config", "backup.zip"],
+    "patterns": [
+      "(?:\\.\\./|\\.\\.\\\\){2,}",
+      "(?i)(?:%2e%2e%2f|%2e%2e/|\\.\\.%2f){2,}",
+      "(?i)/(?:etc/passwd|boot\\.ini)\\b",
+      "(?i)(?:%252e%252e%252f){2,}",
+      "(?i)c:\\\\(?:windows|winnt)\\\\system32",
+      "(?i)\\.git/config"
+    ],
     "base_score": 58,
     "confidence": 0.86,
     "target_field": "path"
@@ -34,9 +66,60 @@
     "alert_type": "恶意命令访问",
     "category": "特征匹配",
     "fields": ["path", "user_agent"],
-    "patterns": ["cmd.exe", "powershell", "whoami", "wget http", "curl http", "/shell"],
+    "patterns": [
+      "(?i)\\bcmd\\.exe\\b",
+      "(?i)\\bpowershell(\\.exe)?\\b",
+      "(?i)\\bwget\\s+https?:",
+      "(?i)\\bcurl\\s+https?:",
+      "(?i)/shell\\b"
+    ],
     "base_score": 70,
     "confidence": 0.93,
+    "target_field": "path"
+  },
+  {
+    "id": "command_injection",
+    "alert_type": "命令注入尝试",
+    "category": "特征匹配",
+    "fields": ["path"],
+    "patterns": [
+      "(?i)(?:;|\\||\\|\\||&&)\\s*(?:ls|cat|id|whoami|pwd|wget|curl|nc|ping|nslookup|uname|ifconfig|ipconfig|netstat)\\b",
+      "(?i)\\$\\(\\s*(?:ls|cat|id|whoami|pwd|wget|curl)\\b",
+      "(?i)`\\s*(?:id|whoami|cat|ls|pwd)\\b",
+      "(?i)/dev/tcp/\\d{1,3}(?:\\.\\d{1,3}){3}"
+    ],
+    "base_score": 65,
+    "confidence": 0.91,
+    "target_field": "path"
+  },
+  {
+    "id": "file_inclusion",
+    "alert_type": "文件包含尝试",
+    "category": "特征匹配",
+    "fields": ["path"],
+    "patterns": [
+      "(?i)(?:include|require)(?:_once)?\\s*\\(?\\s*['\"]?(?:https?|ftp|php)://",
+      "(?i)(?:php|expect)://(?:filter|input|stdin|wrapper)",
+      "(?i)file:///(?:etc|var|usr|windows|boot)",
+      "(?i)\\b(?:file_get_contents|fopen|readfile)\\s*\\(\\s*['\"]?https?:",
+      "(?i)data://(?:text|application)"
+    ],
+    "base_score": 68,
+    "confidence": 0.92,
+    "target_field": "path"
+  },
+  {
+    "id": "webshell_exec",
+    "alert_type": "Webshell执行",
+    "category": "特征匹配",
+    "fields": ["path"],
+    "patterns": [
+      "(?i)\\b(?:eval|assert|exec|system|shell_exec|passthru)\\s*\\(",
+      "(?i)\\b(?:base64_decode|gzinflate|str_rot13)\\s*\\(",
+      "(?i)\\b(?:preg_replace|create_function|call_user_func)\\s*\\("
+    ],
+    "base_score": 72,
+    "confidence": 0.94,
     "target_field": "path"
   },
   {
@@ -44,7 +127,14 @@
     "alert_type": "疑似控制信道",
     "category": "特征匹配",
     "fields": ["path", "user_agent", "tls_fingerprint"],
-    "patterns": ["/beacon", "/c2", "/heartbeat", "/cmd", "cobalt", "ja3-malware-demo"],
+    "patterns": [
+      "(?i)/beacon\\b",
+      "(?i)/c2\\b",
+      "(?i)/heartbeat\\b",
+      "(?i)/cmd\\b",
+      "(?i)\\bcobalt\\b",
+      "(?i)ja3-malware"
+    ],
     "base_score": 75,
     "confidence": 0.95,
     "target_field": "path"
