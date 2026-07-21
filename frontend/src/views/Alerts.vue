@@ -133,7 +133,11 @@ export default {
       this.showModal = false
     },
     exportCSV() {
-      window.open('/api/alerts/export', '_blank')
+      const params = new URLSearchParams()
+      if (this.filterType) params.set('type', this.filterType)
+      if (this.filterSev) params.set('severity', this.filterSev)
+      const query = params.toString()
+      window.open(`/api/alerts/export${query ? '?' + query : ''}`, '_blank')
     },
   },
   mounted() { this.fetchAlerts() },

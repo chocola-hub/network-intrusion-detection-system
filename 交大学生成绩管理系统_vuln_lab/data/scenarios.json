@@ -2,9 +2,9 @@
   {
     "id": "sqli_probe",
     "name": "SQL 注入探测痕迹",
-    "description": "激活后启用受控的 SQL 注入形态成绩查询演示，学生账号携带特定 student_id 参数时可观察到越权返回。",
-    "expected_alerts": ["SQL注入尝试", "越权查询审计"],
-    "steps": ["激活场景", "登录学生 2024001 / 123456", "请求 /api/grades?student_id=2024001%27%20or%201=1--", "确认返回结果包含 2024002 或 2024003", "导出 IDS 日志并查看 SQL 注入特征告警"],
+    "description": "激活后启用受控的 SQL 注入形态课程查询演示，学生账号携带特定 course 参数时可观察到全量成绩返回。",
+    "expected_alerts": ["SQL注入尝试", "异常查询审计"],
+    "steps": ["激活场景", "登录学生 2024001 / 123456", "请求 /api/grades?course=%E4%BF%A1%E6%81%AF%E5%AE%89%E5%85%A8%E5%AF%BC%E8%AE%BA%27%20or%201=1--", "确认返回结果包含 2024002 或 2024003", "导出 IDS 日志并查看 SQL 注入特征告警"],
     "grade_updates": [],
     "log_events": [
       {
@@ -12,7 +12,7 @@
         "source_ip": "198.51.100.88",
         "target_ip": "10.0.0.42",
         "port": 8001,
-        "path": "/api/grades?student_id=2024001%27%20or%201=1--",
+        "path": "/api/grades?course=%E4%BF%A1%E6%81%AF%E5%AE%89%E5%85%A8%E5%AF%BC%E8%AE%BA%27%20or%201=1--",
         "status_code": 200,
         "username": "",
         "login_success": "",

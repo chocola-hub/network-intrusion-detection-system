@@ -7,8 +7,11 @@
         <p>导入网络访问日志，检测端口扫描、暴力登录、异常访问频率、可疑路径和异常状态码。</p>
       </div>
       <div class="hero-actions">
-        <button class="btn btn-primary" @click="loadSample" :disabled="loading">
-          {{ loading ? '分析中...' : '加载示例数据' }}
+        <button class="btn btn-primary" @click="loadLabLive" :disabled="loading">
+          {{ loading ? '分析中...' : '分析靶场实时日志' }}
+        </button>
+        <button class="btn btn-outline" @click="loadSample" :disabled="loading">
+          加载示例数据
         </button>
         <label class="btn btn-outline">
           上传 CSV
@@ -16,6 +19,13 @@
         </label>
       </div>
     </div>
+
+    <div class="realtime-status">
+      <span :class="['status-dot', realtimeConnected ? 'online' : 'offline']"></span>
+      {{ realtimeConnected ? '实时推送已连接' : '实时推送未连接' }}
+    </div>
+
+    <div class="notice" v-if="message">{{ message }}</div>
 
     <div class="result-summary" v-if="lastResult">
       <div class="summary-card"><span>日志条目</span><strong>{{ lastResult.events }}</strong></div>
@@ -49,39 +59,87 @@
 
 <script>
 import axios from 'axios'
+import { io } from 'socket.io-client'
 
 export default {
   name: 'AnalysisPage',
-  data() { return { lastResult: null, loading: false } },
+  data() {
+    return {
+      lastResult: null,
+      loading: false,
+      message: '',
+      socket: null,
+      realtimeConnected: false,
+    }
+  },
+  mounted() {
+    this.connectRealtime()
+  },
+  beforeUnmount() {
+    if (this.socket) {
+      this.socket.disconnect()
+    }
+  },
   methods: {
+    connectRealtime() {
+      this.socket = io({ transports: ['websocket', 'polling'] })
+      this.socket.on('connect', () => {
+        this.realtimeConnected = true
+      })
+      this.socket.on('disconnect', () => {
+        this.realtimeConnected = false
+      })
+      this.socket.on('analysis_result', (data) => {
+        if (!data || data.events === 0) return
+        this.lastResult = data
+        this.message = `已接收实时分析结果：${data.source || '实时数据'}`
+      })
+      this.socket.on('connect_error', () => {
+        this.realtimeConnected = false
+      })
+    },
     levelCount(level) {
       const summary = this.lastResult?.summary || {}
       return summary?.by_level?.[level] ?? summary?.[level] ?? 0
     },
     async loadSample() {
       this.loading = true
+      this.message = ''
       try {
         const { data } = await axios.get('/api/sample')
         this.lastResult = data
-      } catch (e) {}
+      } catch (e) {
+        this.message = e.response?.data?.error || '示例数据分析失败'
+      }
+      this.loading = false
+    },
+    async loadLabLive() {
+      this.loading = true
+      this.message = ''
+      try {
+        const { data } = await axios.get('/api/analyze/lab-live')
+        this.lastResult = data
+      } catch (e) {
+        this.message = e.response?.data?.error || '靶场实时日志分析失败'
+      }
       this.loading = false
     },
     async uploadFile(e) {
       const file = e.target.files[0]
       if (!file) return
       this.loading = true
+      this.message = ''
       const fd = new FormData()
       fd.append('file', file)
       try {
         const { data } = await axios.post('/api/analyze', fd)
         this.lastResult = data
-      } catch (e) {}
+      } catch (e) {
+        this.message = e.response?.data?.error || 'CSV 上传分析失败'
+      }
       this.loading = false
       e.target.value = ''
     },
-  },
-  mounted() {
-    this.loadSample()
   },
 }
 </script>
@@ -105,6 +163,18 @@ h1 { font-size: 24px; color: #263238; margin-bottom: 6px; }
 .btn-primary:disabled { opacity: 0.6; cursor: default; }
 .btn-outline { border: 1px solid #b0bec5; color: #455a64; background: #fff; cursor: pointer; }
 .btn-outline input { display: none; }
+.realtime-status {
+  display: inline-flex; align-items: center; gap: 8px; width: fit-content;
+  background: #fff; border: 1px solid #e8ecf1; border-radius: 6px; padding: 8px 12px;
+  color: #455a64; font-size: 13px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: #b0bec5; }
+.status-dot.online { background: #2e7d32; }
+.status-dot.offline { background: #d32f2f; }
+.notice {
+  background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa;
+  border-radius: 6px; padding: 10px 14px; font-size: 13px;
+}
 .result-summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
 .summary-card {
   background: #fff; border-radius: 8px; padding: 14px; text-align: center;

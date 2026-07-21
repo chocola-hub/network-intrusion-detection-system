@@ -11,7 +11,7 @@ sys.path.insert(0, str(LAB_DIR))
 sys.path.insert(0, str(IDS_DIR))
 sys.path.insert(0, str(LAB_DIR / "scripts"))
 
-from app import app, reset_state  # noqa: E402
+from app import ACCESS_LOG, app, reset_state  # noqa: E402
 from demo_attacks import require_local_target  # noqa: E402
 from src.parser.log_parser import parse_csv_log  # noqa: E402
 
@@ -97,28 +97,45 @@ def test_student_can_query_other_student_by_direct_parameter():
     assert {item["student_id"] for item in items} == {"2024002"}
 
 
-def test_sqli_payload_returns_all_grades_and_audits_it():
+def test_student_id_sqli_shape_stays_idor_parameter_only():
     with app.test_client() as client:
         token = login(client, "2024001", "123456")
         response = client.get("/api/grades?student_id=2024001%27%20or%201=1--", headers=auth(token))
-        assert response.status_code == 200
-        items = response.get_json()["data"]["items"]
-        student_ids = {item["student_id"] for item in items}
-        assert {"2024001", "2024002", "2024003"}.issubset(student_ids)
 
-        audit = client.get("/api/lab/audit")
-        records = audit.get_json()["data"]["items"]
+    assert response.status_code == 200
+    assert response.get_json()["data"]["items"] == []
+
+
+def test_student_course_search_supports_normal_and_sqli_lab_queries():
+    with app.test_client() as client:
+        token = login(client, "2024001", "123456")
+        normal = client.get("/api/grades?course=信息安全导论", headers=auth(token))
+        assert normal.status_code == 200
+        normal_items = normal.get_json()["data"]["items"]
+        assert normal_items
+        assert {item["student_id"] for item in normal_items} == {"2024001"}
+        assert {item["course"] for item in normal_items} == {"信息安全导论"}
+
+        payload = "信息安全导论' or 1=1--"
+        injected = client.get("/api/grades", query_string={"course": payload}, headers=auth(token))
+        assert injected.status_code == 200
+        injected_items = injected.get_json()["data"]["items"]
+        assert {"2024001", "2024002", "2024003"}.issubset(
+            {item["student_id"] for item in injected_items}
+        )
+
+        audit = client.get("/api/lab/audit").get_json()["data"]["items"]
         assert any(
-            item["action"] == "vulnerable_grade_query"
-            and item["target"] == "2024001' or 1=1--"
+            item["action"] == "vulnerable_course_query"
+            and item["target"] == payload
             and item["scenario"] == "sqli_probe"
-            for item in records
+            for item in audit
         )
 
         export = client.get("/api/lab/export-log")
         rows = list(csv.DictReader(io.StringIO(export.get_data(as_text=True))))
-        assert any(row["path"] == "/lab/vulnerable_grade_query" for row in rows)
-        assert any("or%201=1" in row["path"] for row in rows)
+        assert any(row["path"] == "/lab/vulnerable_course_query" for row in rows)
+        assert any("union%20select" in row["path"] for row in rows)
 
 
 def test_reset_keeps_vulnerable_site_seeded_without_showing_lab_controls():
@@ -126,7 +143,11 @@ def test_reset_keeps_vulnerable_site_seeded_without_showing_lab_controls():
         reset = client.post("/api/lab/reset")
         assert reset.status_code == 200
         token = login(client, "2024001", "123456")
-        vulnerable = client.get("/api/grades?student_id=2024001%27%20or%201=1--", headers=auth(token))
+        vulnerable = client.get(
+            "/api/grades",
+            query_string={"course": "信息安全导论' or 1=1--"},
+            headers=auth(token),
+        )
         page = client.get("/")
 
     assert {"2024001", "2024002", "2024003"}.issubset(
@@ -160,6 +181,21 @@ def test_exported_log_file_can_be_parsed_by_ids_parser():
     events = parse_csv_log(LAB_DIR / "data" / "exported_logs.csv")
     assert len(events) >= 4
     assert any(event.path == "/shell?cmd=whoami" for event in events)
+
+
+def test_runtime_access_log_records_real_attack_request():
+    payload = "信息安全导论' or 1=1--"
+    with app.test_client() as client:
+        token = login(client, "2024001", "123456")
+        response = client.get("/api/grades", query_string={"course": payload}, headers=auth(token))
+
+    assert response.status_code == 200
+    rows = list(csv.DictReader(ACCESS_LOG.read_text(encoding="utf-8").splitlines()))
+    assert any(row["path"] == f"/api/grades?course={payload}" for row in rows)
+    attack_row = next(row for row in rows if row["path"] == f"/api/grades?course={payload}")
+    assert attack_row["method"] == "GET"
+    assert attack_row["status_code"] == "200"
+    assert attack_row["username"] == "2024001"
 
 
 def test_invalid_score_rejects_float_like_value():

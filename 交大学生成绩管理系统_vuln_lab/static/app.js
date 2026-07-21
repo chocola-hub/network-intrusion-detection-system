@@ -2,6 +2,7 @@ const state = {
   token: localStorage.getItem('grade_token') || '',
   user: null,
   grades: [],
+  refreshTimer: null,
 }
 
 const el = (id) => document.getElementById(id)
@@ -50,6 +51,7 @@ function renderUser() {
     : '可查看、登记和修改全部学生成绩'
   el('teacherPanel').classList.toggle('hidden', !user || user.role !== 'teacher')
   el('filterBox').classList.toggle('hidden', !user || user.role !== 'teacher')
+  el('studentCourseSearch').classList.toggle('hidden', !user || user.role !== 'student')
 }
 
 function renderGrades() {
@@ -81,11 +83,38 @@ function renderGrades() {
   el('avgScore').textContent = avg
 }
 
-async function loadGrades(studentId = '') {
-  const query = studentId ? `?student_id=${encodeURIComponent(studentId)}` : ''
+function currentGradeQuery() {
+  if (!state.user) {
+    return {}
+  }
+  if (state.user.role === 'teacher') {
+    return { studentId: el('filterStudentId').value.trim() }
+  }
+  return { course: el('studentCourse').value.trim() }
+}
+
+async function loadGrades({ studentId = '', course = '' } = currentGradeQuery()) {
+  const params = new URLSearchParams()
+  if (studentId) params.set('student_id', studentId)
+  if (course) params.set('course', course)
+  const query = params.size ? `?${params.toString()}` : ''
   const data = await requestJson(`/api/grades${query}`, { headers: authHeaders() })
   state.grades = data.items || []
   renderGrades()
+}
+
+function startAutoRefresh() {
+  window.clearInterval(state.refreshTimer)
+  state.refreshTimer = window.setInterval(() => {
+    if (state.user && !document.hidden) {
+      loadGrades().catch(() => {})
+    }
+  }, 3000)
+}
+
+function stopAutoRefresh() {
+  window.clearInterval(state.refreshTimer)
+  state.refreshTimer = null
 }
 
 async function restoreSession() {
@@ -99,6 +128,7 @@ async function restoreSession() {
     renderUser()
     showWorkspace()
     await loadGrades()
+    startAutoRefresh()
   } catch (error) {
     localStorage.removeItem('grade_token')
     state.token = ''
@@ -126,6 +156,7 @@ el('loginForm').addEventListener('submit', async (event) => {
     renderUser()
     showWorkspace()
     await loadGrades()
+    startAutoRefresh()
   } catch (error) {
     setMessage(el('loginMessage'), error.message)
   }
@@ -143,6 +174,7 @@ el('logoutBtn').addEventListener('click', async () => {
     state.token = ''
     state.user = null
     state.grades = []
+    stopAutoRefresh()
     showLogin()
   }
 })
@@ -164,19 +196,35 @@ el('gradeForm').addEventListener('submit', async (event) => {
     })
     setMessage(el('gradeMessage'), '保存成功', true)
     el('gradeForm').reset()
-    await loadGrades(el('filterStudentId').value.trim())
+    await loadGrades({ studentId: el('filterStudentId').value.trim() })
   } catch (error) {
     setMessage(el('gradeMessage'), error.message)
   }
 })
 
 el('filterBtn').addEventListener('click', () => {
-  loadGrades(el('filterStudentId').value.trim()).catch((error) => setMessage(el('gradeMessage'), error.message))
+  loadGrades({ studentId: el('filterStudentId').value.trim() }).catch((error) => setMessage(el('gradeMessage'), error.message))
 })
 
 el('resetFilterBtn').addEventListener('click', () => {
   el('filterStudentId').value = ''
   loadGrades().catch((error) => setMessage(el('gradeMessage'), error.message))
+})
+
+el('studentCourseSearchBtn').addEventListener('click', () => {
+  loadGrades({ course: el('studentCourse').value.trim() }).catch((error) => setMessage(el('gradeMessage'), error.message))
+})
+
+el('studentCourseResetBtn').addEventListener('click', () => {
+  el('studentCourse').value = ''
+  loadGrades().catch((error) => setMessage(el('gradeMessage'), error.message))
+})
+
+el('studentCourse').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    loadGrades({ course: el('studentCourse').value.trim() }).catch((error) => setMessage(el('gradeMessage'), error.message))
+  }
 })
 
 restoreSession()

