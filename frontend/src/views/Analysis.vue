@@ -32,21 +32,24 @@
       <div class="summary-card high"><span>高危</span><strong>{{ levelCount('高危') }}</strong></div>
       <div class="summary-card medium"><span>中危</span><strong>{{ levelCount('中危') }}</strong></div>
       <div class="summary-card low"><span>低危</span><strong>{{ levelCount('低危') }}</strong></div>
-      <div class="summary-card"><span>告警总数</span><strong>{{ lastResult.alerts?.length || 0 }}</strong></div>
+      <div class="summary-card"><span>告警条目</span><strong>{{ lastResult.alerts?.length || 0 }}</strong></div>
+      <div class="summary-card"><span>命中次数</span><strong>{{ hitCount }}</strong></div>
     </div>
 
     <div class="table-wrap" v-if="lastResult">
       <table>
         <thead>
           <tr>
-            <th>类型</th><th>等级</th><th>分数</th><th>来源IP</th><th>目标</th><th>检测依据</th>
+            <th>时间</th><th>类型</th><th>等级</th><th>分数</th><th>次数</th><th>来源IP</th><th>目标</th><th>检测依据</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(a, i) in lastResult.alerts" :key="i">
+            <td class="td-time">{{ alertTime(a) }}</td>
             <td><span class="tag">{{ a.alert_type }}</span></td>
             <td><span class="badge" :class="'badge-' + a.level">{{ a.level }}</span></td>
             <td class="td-score">{{ a.score }}</td>
+            <td class="td-count">{{ a.count || 1 }}</td>
             <td class="td-mono">{{ a.source_ip }}</td>
             <td class="td-mono">{{ a.target }}</td>
             <td class="td-evidence">{{ a.evidence }}</td>
@@ -80,6 +83,13 @@ export default {
       this.socket.disconnect()
     }
   },
+  computed: {
+    hitCount() {
+      const summary = this.lastResult?.summary || {}
+      if (summary.total_hits !== undefined) return summary.total_hits
+      return (this.lastResult?.alerts || []).reduce((sum, alert) => sum + (alert.count || 1), 0)
+    },
+  },
   methods: {
     connectRealtime() {
       this.socket = io({ transports: ['websocket', 'polling'] })
@@ -102,6 +112,7 @@ export default {
       const summary = this.lastResult?.summary || {}
       return summary?.by_level?.[level] ?? summary?.[level] ?? 0
     },
+    alertTime(alert) { return alert.timestamp || alert.first_seen || alert.last_seen || '--' },
     async loadSample() {
       this.loading = true
       this.message = ''
@@ -175,7 +186,7 @@ h1 { font-size: 24px; color: #263238; margin-bottom: 6px; }
   background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa;
   border-radius: 6px; padding: 10px 14px; font-size: 13px;
 }
-.result-summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.result-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
 .summary-card {
   background: #fff; border-radius: 8px; padding: 14px; text-align: center;
   border: 1px solid #e8ecf1; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
@@ -196,6 +207,8 @@ tr:hover td { background: #f8fafc; }
 .badge-中危 { background: #ff9800; }
 .badge-低危 { background: #4caf50; }
 .td-score { font-weight: 700; color: #455a64; }
+.td-count { font-weight: 700; color: #1565c0; text-align: center; }
+.td-time { font-family: 'Consolas', monospace; font-size: 12px; color: #607d8b; white-space: nowrap; }
 .td-mono { font-family: 'Consolas', monospace; font-size: 12px; color: #37474f; }
 .td-evidence { color: #78909c; font-size: 12px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

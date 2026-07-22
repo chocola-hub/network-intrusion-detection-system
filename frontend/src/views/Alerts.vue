@@ -21,14 +21,16 @@
       <table>
         <thead>
           <tr>
-            <th>类型</th><th>等级</th><th>分数</th><th>来源IP</th><th>目标</th><th>检测依据</th><th>操作</th>
+            <th>时间</th><th>类型</th><th>等级</th><th>分数</th><th>次数</th><th>来源IP</th><th>目标</th><th>检测依据</th><th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(a, i) in alerts" :key="i" :class="'row-' + a.level">
+            <td class="td-time">{{ alertTime(a) }}</td>
             <td><span class="tag" :style="{ background: typeColor(a.alert_type)+'20', color: typeColor(a.alert_type) }">{{ a.alert_type }}</span></td>
             <td><span class="badge" :class="'badge-' + a.level">{{ a.level }}</span></td>
             <td class="td-score">{{ a.score }}</td>
+            <td class="td-count">{{ a.count || 1 }}</td>
             <td class="td-mono">{{ a.source_ip }}</td>
             <td class="td-mono">{{ a.target }}</td>
             <td class="td-evidence">{{ a.evidence }}</td>
@@ -41,7 +43,7 @@
               </button>
             </td>
           </tr>
-          <tr v-if="alerts.length===0"><td colspan="7" class="empty">请先加载日志数据</td></tr>
+          <tr v-if="alerts.length===0"><td colspan="9" class="empty">请先加载日志数据</td></tr>
         </tbody>
       </table>
     </div>
@@ -81,6 +83,7 @@ export default {
   data() { return { alerts: [], total: 0, filterType: '', filterSev: '', availableTypes: [] } },
   methods: {
     typeColor(t) { return TYPE_COLORS[t] || '#607d8b' },
+    alertTime(alert) { return alert.timestamp || alert.first_seen || alert.last_seen || '--' },
     async fetchAlerts() {
       const p = {}
       if (this.filterType) p.type = this.filterType
@@ -168,6 +171,8 @@ tr:hover td { background: #f8fafc; }
 .badge-中危 { background: #ff9800; }
 .badge-低危 { background: #4caf50; }
 .td-score { font-weight: 700; color: #455a64; }
+.td-count { font-weight: 700; color: #1565c0; text-align: center; }
+.td-time { font-family: 'Consolas', monospace; font-size: 12px; color: #607d8b; white-space: nowrap; }
 .td-mono { font-family: 'Consolas', monospace; font-size: 12px; color: #37474f; }
 .td-evidence { color: #78909c; font-size: 12px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .td-actions { display: flex; gap: 4px; white-space: nowrap; }

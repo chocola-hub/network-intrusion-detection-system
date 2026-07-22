@@ -9,7 +9,8 @@
       <div class="card high"><div class="card-label">高危</div><div class="card-value">{{ levelCount('高危') }}</div></div>
       <div class="card medium"><div class="card-label">中危</div><div class="card-value">{{ levelCount('中危') }}</div></div>
       <div class="card low"><div class="card-label">低危</div><div class="card-value">{{ levelCount('低危') }}</div></div>
-      <div class="card"><div class="card-label">总告警</div><div class="card-value">{{ ids.total_alerts || 0 }}</div></div>
+      <div class="card"><div class="card-label">告警条目</div><div class="card-value">{{ ids.total_alerts || 0 }}</div></div>
+      <div class="card"><div class="card-label">命中次数</div><div class="card-value">{{ hitCount }}</div></div>
       <div class="card"><div class="card-label">平均分</div><div class="card-value">{{ ids.avg_score || 0 }}</div></div>
     </div>
 
@@ -70,7 +71,7 @@ export default {
   name: 'Dashboard',
   data() {
     return {
-      ids: { events: 0, summary: {}, total_alerts: 0, avg_score: 0, type_counts: {}, severity_counts: {}, top_sources: [] },
+      ids: { events: 0, summary: {}, total_alerts: 0, total_hits: 0, avg_score: 0, type_counts: {}, severity_counts: {}, top_sources: [] },
       ips: { status: { enabled: false, rule_count: 0, uptime_seconds: 0 }, stats: { total_checked: 0, total_dropped: 0, total_accepted: 0, drop_rate: 0, protocols: {} }, availability: 'checking' },
       loading: false,
       wsConnected: false,
@@ -79,6 +80,12 @@ export default {
       attackChain: '',
       chaining: false,
     }
+  },
+  computed: {
+    hitCount() {
+      const summary = this.ids?.summary || {}
+      return this.ids?.total_hits ?? summary?.total_hits ?? this.ids?.total_alerts ?? 0
+    },
   },
   methods: {
     fmtNum(n) { return n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(n) },
@@ -183,7 +190,7 @@ export default {
 <style scoped>
 .dash { display: flex; flex-direction: column; gap: 14px; }
 .section-title { font-size: 15px; font-weight: 700; color: #37474f; padding: 6px 0; }
-.stat-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
 .card {
   background: #fff; border-radius: 8px; padding: 14px; text-align: center;
   border: 1px solid #e8ecf1; box-shadow: 0 1px 3px rgba(0,0,0,0.04);

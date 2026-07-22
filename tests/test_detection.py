@@ -69,18 +69,28 @@ def test_live_lab_log_endpoint_analyzes_runtime_website_log():
     lab_log.write_text(
         "timestamp,source_ip,target_ip,port,path,status_code,username,login_success,method,protocol,host,user_agent,bytes_sent,duration_ms,tls_fingerprint\n"
         "2026-07-20T10:00:00,127.0.0.1,10.0.0.42,8001,/api/login,200,2024001,true,POST,tcp,127.0.0.1,grade-lab-demo/1.0,680,30,ja3-browser\n"
-        "2026-07-20T10:00:02,127.0.0.1,10.0.0.42,8001,/api/grades?course=信息安全导论' or 1=1--,200,2024001,,GET,tcp,127.0.0.1,grade-lab-demo/1.0,4500,40,ja3-browser\n",
+        "2026-07-20T10:00:02,127.0.0.1,10.0.0.42,8001,/api/grades?course=信息安全导论' or 1=1--,200,2024001,,GET,tcp,127.0.0.1,grade-lab-demo/1.0,4500,40,ja3-browser\n"
+        "2026-07-20T10:00:04,127.0.0.1,10.0.0.42,8001,/api/grades?course=信息安全导论' or 1=1--,200,2024001,,GET,tcp,127.0.0.1,grade-lab-demo/1.0,4500,38,ja3-browser\n"
+        "2026-07-20T10:00:06,127.0.0.1,10.0.0.42,8001,/api/grades?course=信息安全导论' or 1=1--,200,2024001,,GET,tcp,127.0.0.1,grade-lab-demo/1.0,4500,36,ja3-browser\n",
         encoding="utf-8",
     )
 
     with app.test_client() as client:
         response = client.get("/api/analyze/lab-live")
+        dashboard_response = client.get("/api/dashboard")
 
     assert response.status_code == 200
     data = response.get_json()
     assert data["source"] == "靶场实时访问日志"
-    assert data["events"] == 2
-    assert any(alert["alert_type"] == "SQL注入尝试" for alert in data["alerts"])
+    assert data["events"] == 4
+    sql_alert = next(alert for alert in data["alerts"] if alert["alert_type"] == "SQL注入尝试")
+    assert sql_alert["count"] == 3
+    assert sql_alert["timestamp"] == "2026-07-20T10:00:02"
+
+    assert dashboard_response.status_code == 200
+    dashboard_ids = dashboard_response.get_json()["ids"]
+    assert dashboard_ids["total_hits"] >= 3
+    assert dashboard_ids["type_counts"]["SQL注入尝试"] == 3
 
 
 def test_alert_export_cold_start_uses_sample_data():

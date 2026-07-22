@@ -228,15 +228,18 @@ def get_alert_stats():
     severity_counts = {"高危": 0, "中危": 0, "低危": 0}
     source_counts = {}
     total_score = 0
+    total_hits = 0
 
     for a in alerts:
+        hits = int(a.get("count") or 1)
         t = a.get("alert_type", "未知")
-        type_counts[t] = type_counts.get(t, 0) + 1
+        type_counts[t] = type_counts.get(t, 0) + hits
         s = a.get("level", "低危")
-        severity_counts[s] = severity_counts.get(s, 0) + 1
+        severity_counts[s] = severity_counts.get(s, 0) + hits
         ip = a.get("source_ip", "未知")
-        source_counts[ip] = source_counts.get(ip, 0) + 1
+        source_counts[ip] = source_counts.get(ip, 0) + hits
         total_score += a.get("score", 0)
+        total_hits += hits
 
     top_sources = sorted(source_counts.items(), key=lambda x: -x[1])[:5]
 
@@ -244,6 +247,7 @@ def get_alert_stats():
     return jsonify({
         "events": _last_analysis.get("events", 0),
         "total_alerts": len(alerts),
+        "total_hits": summary.get("total_hits", total_hits),
         "summary": summary,
         "type_counts": summary.get("by_type", type_counts),
         "severity_counts": summary.get("by_level", severity_counts),
@@ -350,7 +354,10 @@ def analyze_events(events, source: str) -> dict[str, object]:
         source=source,
         recommendations=build_recommendations(alerts, incidents),
     )
-    return to_jsonable(result)
+    jsonable = to_jsonable(result)
+    for alert in jsonable.get("alerts", []):
+        alert["timestamp"] = alert.get("first_seen") or alert.get("last_seen") or ""
+    return jsonable
 
 
 def summarize_alerts(alerts: list[Alert]) -> dict[str, object]:
@@ -360,22 +367,26 @@ def summarize_alerts(alerts: list[Alert]) -> dict[str, object]:
     source_counts: dict[str, int] = {}
     target_counts: dict[str, int] = {}
     timeline: dict[str, int] = {}
+    total_hits = 0
 
     for alert in alerts:
-        by_level[alert.level] = by_level.get(alert.level, 0) + 1
-        by_type[alert.alert_type] = by_type.get(alert.alert_type, 0) + 1
-        by_category[alert.category] = by_category.get(alert.category, 0) + 1
-        source_counts[alert.source_ip] = source_counts.get(alert.source_ip, 0) + 1
-        target_counts[alert.target] = target_counts.get(alert.target, 0) + 1
+        hits = alert.count or 1
+        by_level[alert.level] = by_level.get(alert.level, 0) + hits
+        by_type[alert.alert_type] = by_type.get(alert.alert_type, 0) + hits
+        by_category[alert.category] = by_category.get(alert.category, 0) + hits
+        source_counts[alert.source_ip] = source_counts.get(alert.source_ip, 0) + hits
+        target_counts[alert.target] = target_counts.get(alert.target, 0) + hits
+        total_hits += hits
         timestamp = alert.first_seen or alert.last_seen
         if timestamp is not None:
             key = timestamp.isoformat(timespec="seconds")
-            timeline[key] = timeline.get(key, 0) + 1
+            timeline[key] = timeline.get(key, 0) + hits
 
     return {
         "高危": by_level.get("高危", 0),
         "中危": by_level.get("中危", 0),
         "低危": by_level.get("低危", 0),
+        "total_hits": total_hits,
         "by_level": by_level,
         "by_type": by_type,
         "by_category": by_category,
